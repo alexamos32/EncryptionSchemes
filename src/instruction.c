@@ -1,88 +1,19 @@
+#include <stdlib.h>
 #include <unistd.h>
+#include <sys/random.h>
 
 #include "instruction.h"
 #include "utils.h"
 
-static int ex_read(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_write(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_set(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_add(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_addi(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_sub(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_subi(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_shl(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_shr(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_andi(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_ori(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_xori(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_and(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_or(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_xor(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_str(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_ldr(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_st(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_ld(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_jmp(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_jz(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_jnz(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
-static int ex_hlt(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc);
+__attribute__((constructor)) static void construct();
+__attribute__((destructor)) static void destruct();
+
+static size_t offset;
+static int (**instructions)(struct instruction *, struct reg[16], unsigned char[256], int *);
 
 int execute(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc)
 {
-	switch (instruction_reg->op) {
-		case INST_READ:
-			return ex_read(instruction_reg, gp_reg, memory, pc);
-		case INST_WRITE:
-			return ex_write(instruction_reg, gp_reg, memory, pc);
-
-		case INST_SET:
-			return ex_set(instruction_reg, gp_reg, memory, pc);
-		case INST_ADD:
-			return ex_add(instruction_reg, gp_reg, memory, pc);
-		case INST_ADDI:
-			return ex_addi(instruction_reg, gp_reg, memory, pc);
-		case INST_SUB:
-			return ex_sub(instruction_reg, gp_reg, memory, pc);
-		case INST_SUBI:
-			return ex_subi(instruction_reg, gp_reg, memory, pc);
-		case INST_SHL:
-			return ex_shl(instruction_reg, gp_reg, memory, pc);
-		case INST_SHR:
-			return ex_shr(instruction_reg, gp_reg, memory, pc);
-
-		case INST_ANDI:
-			return ex_andi(instruction_reg, gp_reg, memory, pc);
-		case INST_ORI:
-			return ex_ori(instruction_reg, gp_reg, memory, pc);
-		case INST_XORI:
-			return ex_xori(instruction_reg, gp_reg, memory, pc);
-		case INST_AND:
-			return ex_and(instruction_reg, gp_reg, memory, pc);
-		case INST_OR:
-			return ex_or(instruction_reg, gp_reg, memory, pc);
-		case INST_XOR:
-			return ex_xor(instruction_reg, gp_reg, memory, pc);
-
-		case INST_STR:
-			return ex_str(instruction_reg, gp_reg, memory, pc);
-		case INST_LDR:
-			return ex_ldr(instruction_reg, gp_reg, memory, pc);
-		case INST_ST:
-			return ex_st(instruction_reg, gp_reg, memory, pc);
-		case INST_LD:
-			return ex_ld(instruction_reg, gp_reg, memory, pc);
-
-		case INST_JMP:
-			return ex_jmp(instruction_reg, gp_reg, memory, pc);
-		case INST_JZ:
-			return ex_jz(instruction_reg, gp_reg, memory, pc);
-		case INST_JNZ:
-			return ex_jnz(instruction_reg, gp_reg, memory, pc);
-		case INST_HLT:
-			return ex_hlt(instruction_reg, gp_reg, memory, pc);
-	}
-
-	return 0;
+	return instructions[(offset + instruction_reg->op) % 23](instruction_reg, gp_reg, memory, pc);
 }
 
 static int ex_read(struct instruction *instruction_reg, struct reg gp_reg[16], unsigned char memory[256], int *pc)
@@ -298,4 +229,44 @@ static int ex_hlt(struct instruction *instruction_reg, struct reg gp_reg[16], un
 	(void) pc;
 
 	return 1;
+}
+
+__attribute__((constructor)) static void construct()
+{
+	instructions = malloc(sizeof(int (*)(struct instruction *, struct reg[16], unsigned char[256], int *)) * 23);
+	if (!instructions)
+		exit(EXIT_FAILURE);
+
+	// get secure random
+	if (getrandom(&offset, sizeof(size_t), 0) != sizeof(size_t))
+		exit(EXIT_FAILURE);
+
+	instructions[(offset + INST_READ) % 23] = &ex_read;
+	instructions[(offset + INST_WRITE) % 23] = &ex_write;
+	instructions[(offset + INST_SET) % 23] = &ex_set;
+	instructions[(offset + INST_ADD) % 23] = &ex_add;
+	instructions[(offset + INST_ADDI) % 23] = &ex_addi;
+	instructions[(offset + INST_SUB) % 23] = &ex_sub;
+	instructions[(offset + INST_SUBI) % 23] = &ex_subi;
+	instructions[(offset + INST_SHL) % 23] = &ex_shl;
+	instructions[(offset + INST_SHR) % 23] = &ex_shr;
+	instructions[(offset + INST_ANDI) % 23] = &ex_andi;
+	instructions[(offset + INST_ORI) % 23] = &ex_ori;
+	instructions[(offset + INST_XORI) % 23] = &ex_xori;
+	instructions[(offset + INST_AND) % 23] = &ex_and;
+	instructions[(offset + INST_OR) % 23] = &ex_or;
+	instructions[(offset + INST_XOR) % 23] = &ex_xor;
+	instructions[(offset + INST_STR) % 23] = &ex_str;
+	instructions[(offset + INST_LDR) % 23] = &ex_ldr;
+	instructions[(offset + INST_ST) % 23] = &ex_st;
+	instructions[(offset + INST_LD) % 23] = &ex_ld;
+	instructions[(offset + INST_JMP) % 23] = &ex_jmp;
+	instructions[(offset + INST_JZ) % 23] = &ex_jz;
+	instructions[(offset + INST_JNZ) % 23] = &ex_jnz;
+	instructions[(offset + INST_HLT) % 23] = &ex_hlt;
+}
+
+__attribute__((destructor)) static void destruct()
+{
+	free(instructions);
 }
